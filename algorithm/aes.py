@@ -144,34 +144,44 @@ def G(w: int, i):
 # input: key: int
 # output: rk: int list
 # 以AES128为例，要将初始密钥设置为rk[0]
-def rk_generator(key):
+def rk_generator(key, length_of_key):
+    # 计算密钥长度 单位：bit 128/192/256
+    length_of_key = (length_of_key // 2) * 8
     # 将key转化为2进制
-    key = format(key, f"0128b")
+    key = format(key, f'0{length_of_key}b')
+    # 计算需要加密轮数
+    Nk = length_of_key // 32
+    Nr = {128: 10, 192:12, 256: 14}[length_of_key]
+    # 将密钥按列导入W数组，每组32bit = 4byte = 1word.
+    W = [int(key[i: i + 32], 2) for i in range(0, length_of_key, 32)]
+    # 密钥扩展
+    for i in range(len(W), (Nr + 1) * 4):
+        if i % Nk == 0:
+            W.append(W[i - Nk] ^ G(W[i - 1], i // Nk - 1))
+        elif Nk > 6 and i % 4 == 0:
+            W.append(W[i - Nk] ^
+                     int.from_bytes(subBytes(W[i - 1].to_bytes(4, 'big'), S_box)))
+        else:
+            W.append(W[i - Nk] ^ W[i - 1])
+    # 将密钥填充到rk中
     rk = []
-    W = [int(key[:32], 2), int(key[32:64], 2), int(key[64:96], 2), int(key[96:], 2)]
-
-    rk.append(int.from_bytes(W[0].to_bytes(4, 'big') +
-                             W[1].to_bytes(4, 'big') +
-                             W[2].to_bytes(4, 'big') +
-                             W[3].to_bytes(4, 'big'), 'big'))
-    for i in range(0, 10):
-        W.append(W[(i + 1) * 4 - 4] ^ G(W[(i + 1) * 4 - 1], i))
-        W.append(W[(i + 1) * 4 - 3] ^ W[(i + 1) * 4 + 0])
-        W.append(W[(i + 1) * 4 - 2] ^ W[(i + 1) * 4 + 1])
-        W.append(W[(i + 1) * 4 - 1] ^ W[(i + 1) * 4 + 2])
-        rk.append(int.from_bytes(W[(i + 1) * 4].to_bytes(4, 'big') +
-                                 W[(i + 1) * 4 + 1].to_bytes(4, 'big') +
-                                 W[(i + 1) * 4 + 2].to_bytes(4, 'big') +
-                                 W[(i + 1) * 4 + 3].to_bytes(4, 'big'), 'big'))
-    return rk
+    # print(len(W))
+    for i in range(0, len(W), 4):
+        rk.append(int.from_bytes(W[i].to_bytes(4, 'big') +
+                                 W[i + 1].to_bytes(4, 'big') +
+                                 W[i + 2].to_bytes(4, 'big') +
+                                 W[i + 3].to_bytes(4, 'big'), 'big'))
+    return rk, Nr
 
 
 # AES 核心实现代码
 # input: data : byte  rk: int list
 # output: byte
 # 待改进：AES 192/256 尚未实现
-def data_encryption_standard(data, rk):
+def data_encryption_standard(data, rk, Nr):
     blockNumber = len(data) // 16
+    # print(blockNumber)
+
     result = b''
     for block in range(0, blockNumber):
         blockData = data[block * 16: (block + 1) * 16]
@@ -182,7 +192,7 @@ def data_encryption_standard(data, rk):
         result_t = result_t.to_bytes(16, 'big')
         # print(hex(int.from_bytes(result_t)))
         # 前n-1循环运算
-        for i in range(1, 10):
+        for i in range(1, Nr):
             # 字节代换
             result_t = subBytes(result_t, S_box)
             # print(hex(int.from_bytes(result_t)))
@@ -198,12 +208,12 @@ def data_encryption_standard(data, rk):
         # 最后一轮
         result_t = subBytes(result_t, S_box)
         result_t = shift_rows(result_t, shift_rows_list)
-        result_t = int.from_bytes(result_t) ^ rk[10]
+        result_t = int.from_bytes(result_t) ^ rk[Nr]
         result += result_t.to_bytes(16, 'big')
     return result
 
 
-def data_decryption_standard(data, rk):
+def data_decryption_standard(data, rk, Nr):
     blockNumber = len(data) // 16
     result = b''
     for block in range(0, blockNumber):
@@ -215,7 +225,7 @@ def data_decryption_standard(data, rk):
         result_t = result_t.to_bytes(16, 'big')
         # print(hex(int.from_bytes(result_t)))
         # 前n-1循环运算
-        for i in range(1, 10):
+        for i in range(1, Nr):
             # 行移位
             result_t = shift_rows(result_t, shift_rows_list_r)
             # print(hex(int.from_bytes(result_t)))
@@ -231,30 +241,26 @@ def data_decryption_standard(data, rk):
         # 最后一轮
         result_t = shift_rows(result_t, shift_rows_list_r)
         result_t = subBytes(result_t, RS_box)
-        result_t = int.from_bytes(result_t) ^ rk[10]
+        result_t = int.from_bytes(result_t) ^ rk[Nr]
         result += result_t.to_bytes(16, 'big')
     return result
 
 
-def aes_str_encode(data, key):
-    rk = rk_generator(key)
+def aes_str_encode(data, rk, Nr):
     # 测试，加密16进制数据，非字符串
-    # b_messages = padding_zero(bytes.fromhex(data))
-    b_messages = padding_zero(data.encode())
-    return data_encryption_standard(b_messages, rk)
+    b_messages = padding_zero(bytes.fromhex(data))
+    # b_messages = padding_zero(data.encode())
+    return data_encryption_standard(b_messages, rk, Nr)
 
 
-def aes_str_decode(data, key):
-    rk = rk_generator(key)
-    rk.reverse()
+def aes_str_decode(data, rk, Nr):
     b_messages = bytes.fromhex(data)
-    return remove_padding_zeros(data_decryption_standard(b_messages, rk))
+    return remove_padding_zeros(data_decryption_standard(b_messages, rk, Nr))
 
 
 # 输入：data：string or file location; key：int
 # 输出: hex string
-def aes_file_encode(filename, key):
-    rk = rk_generator(key)
+def aes_file_encode(filename, rk, Nr):
     # 文件读写部分
     file_count = 0
     c_fname = filename + '_encoded' + format(file_count, '02d')
@@ -265,7 +271,7 @@ def aes_file_encode(filename, key):
     with open(filename, 'rb') as text_file:
         byte_file = text_file.read()
     byte_file = padding_zero(byte_file)
-    encodeMessage = data_encryption_standard(byte_file, rk)
+    encodeMessage = data_encryption_standard(byte_file, rk, Nr)
     with open(c_fname, 'wb') as out_file:
         out_file.write(encodeMessage)
     return c_fname
@@ -273,9 +279,8 @@ def aes_file_encode(filename, key):
 
 # 输入: data: hex string; key: int
 # 输出： byte string or file
-def aes_file_decode(filename, key):
-    rk = rk_generator(key)
-    rk.reverse()
+def aes_file_decode(filename, rk, Nr):
+
     # 文件读写部分
     file_count = 0
     c_fname = filename + '_decoded' + format(file_count, '02d')
@@ -285,23 +290,27 @@ def aes_file_decode(filename, key):
     # 加密后文件名c_fname
     with open(filename, 'rb') as text_file:
         byte_file = text_file.read()
-    decodeMessage = data_encryption_standard(byte_file, rk)
+    decodeMessage = data_decryption_standard(byte_file, rk, Nr)
     with open(c_fname, 'wb') as out_file:
         out_file.write(remove_padding_zeros(decodeMessage))
     return c_fname
 
 
 
-def aes_encode(data, key):
+def aes_encode(data, key, length_of_key):
+    rk, Nr = rk_generator(key, length_of_key)
+
     if isfile(data):
-        file_location = aes_file_encode(data, key)
+        file_location = aes_file_encode(data, rk, Nr)
         return f"File encode success! File location: {file_location}"
     else:
-        return aes_str_encode(data, key)
+        return aes_str_encode(data, rk, Nr)
 
 
-def aes_decode(data, key):
+def aes_decode(data, key, length_of_key):
+    rk, Nr = rk_generator(key, length_of_key)
+    rk.reverse()
     if isfile(data):
-        return aes_file_decode(data, key)
+        return aes_file_decode(data, rk, Nr)
     else:
-        return aes_str_decode(data, key)
+        return aes_str_decode(data, rk, Nr)
