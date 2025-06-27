@@ -26,9 +26,9 @@ if __name__ == "__main__":
             encodeFlag = input("Do you want to encode(y)/decode(n) this data?(Y/n): ")
             if encodeFlag == 'y' or encodeFlag == 'Y' or encodeFlag == '':
                 result = aes_encode(inputData, int(inputKey, 16), len(inputKey))
-                print('DES encode result: ', result.hex() if isinstance(result, bytes) else result)
+                print('AES encode result: ', result.hex() if isinstance(result, bytes) else result)
             else:
-                print('DES decode result: ', aes_decode(inputData, int(inputKey, 16), len(inputKey)))
+                print('AES decode result: ', aes_decode(inputData, int(inputKey, 16), len(inputKey)))
         else:
             print("Check input data.")
     except ValueError:

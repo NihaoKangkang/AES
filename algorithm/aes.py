@@ -248,8 +248,8 @@ def data_decryption_standard(data, rk, Nr):
 
 def aes_str_encode(data, rk, Nr):
     # 测试，加密16进制数据，非字符串
-    b_messages = padding_zero(bytes.fromhex(data))
-    # b_messages = padding_zero(data.encode())
+    # b_messages = padding_zero(bytes.fromhex(data))
+    b_messages = padding_zero(data.encode())
     return data_encryption_standard(b_messages, rk, Nr)
 
 
